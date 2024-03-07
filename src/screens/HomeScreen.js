@@ -1,226 +1,195 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TouchableHighlight } from 'react-native';
-import { Button, useTheme } from 'react-native-paper';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, ScrollView, Text, TextInput, TouchableOpacity,
+  Image, StyleSheet, ActivityIndicator, Alert, Platform
+} from 'react-native';
+import { useTheme } from 'react-native-paper';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera } from 'expo-camera';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-// Dummy data with Bengali titles and English translations
-const dummyFeaturedRecipes = [
-  { id: 1, title: 'স্প্যাঘেটি কার্বোনারা', translatedTitle: 'Spaghetti Carbonara', category: 'Italian', image: 'https://via.placeholder.com/300', description: 'স্প্যাঘেটি কার্বোনারা একটি ইতালীয় রেসিপি। এটি পাস্তা, পার্মেজান চিজ, ডিম, পাঁচ পিঁয়াজ, গারলিক, অরিগানো, মুষলি, লম্বা মাখা বা প্যাঞ্জা মুষলি এবং মাংসের বাতির সাথে তৈরি হয়।' },
-  { id: 2, title: 'চিকেন টিক্কা মাসালা', translatedTitle: 'Chicken Tikka Masala', category: 'Indian', image: 'https://via.placeholder.com/300', description: 'চিকেন টিক্কা মাসালা একটি ভারতীয় রেসিপি।' },
-  { id: 3, title: 'সুশি রোল', translatedTitle: 'Sushi Rolls', category: 'Japanese', image: 'https://via.placeholder.com/300', description: 'সুশি রোল একটি জাপানিজ রেসিপি।' },
-  { id: 4, title: 'তাকা রেসিপি', translatedTitle: 'Taco Recipe', category: 'Mexican', image: 'https://via.placeholder.com/300', description: 'তাকা রেসিপি একটি মেক্সিকান রেসিপি।' },
-  { id: 5, title: 'পানি পুড়ি', translatedTitle: 'Pani Puri', category: 'Indian', image: 'https://via.placeholder.com/300', description: 'পানি পুড়ি একটি ভারতীয় রেসিপি।' },
-  { id: 6, title: 'পিজ্জা', translatedTitle: 'Pizza', category: 'Italian', image: 'https://via.placeholder.com/300', description: 'পিজ্জা একটি ইতালীয় রেসিপি।' },
-];
-
-// Additional recipe categories
-const dummyRecipeCategories = ['Italian', 'Indian', 'Japanese', 'Mexican', 'Mediterranean', 'Chinese', 'Thai', 'American'];
-
-
-// Dummy data for quotes on food
-const dummyFoodQuotes = [
-  'Lets eat, then talk! - NoMan Nayeem',
-  'Food is symbolic of love when words are inadequate. - Alan D. Wolfelt',
-  'One cannot think well, love well, sleep well, if one has not dined well. - Virginia Woolf',
-  'The only thing I like better than talking about food is eating. - John Walters',
-  'Laughter is brightest in the place where the food is. - Irish Proverb',
-  'Good food is the foundation of genuine happiness. - Auguste Escoffier',
-];
-
-export default function HomeScreen({ navigation }) {
+const HomeScreen = () => {
   const { colors } = useTheme();
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollViewRef = useRef();
+  const [imageUri, setImageUri] = useState(null);
 
-  const openRecipeDetails = (recipe) => {
-    setSelectedRecipe(recipe);
-    setModalVisible(true);
+  useEffect(() => {
+    (async () => {
+      if (Platform.OS !== 'web') {
+        const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+        const { status: imagePickerStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (cameraStatus !== 'granted' || imagePickerStatus !== 'granted') {
+          Alert.alert('Permission needed', 'Camera and photo library access is required to use these features.');
+        }
+      }
+    })();
+  }, []);
+
+  const handleSendMessage = () => {
+    if (!message.trim()) return;
+    const newMessage = { text: message.trim(), isUser: true, timestamp: new Date() };
+    setMessages([...messages, newMessage]);
+    mockBotResponse(message.trim());
+    setMessage('');
+    scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
-  const closeRecipeDetails = () => {
-    setModalVisible(false);
+  const mockBotResponse = (userMessage) => {
+    setIsLoading(true);
+    setTimeout(() => {
+      const botMessage = { text: `Your reply is: ${userMessage}`, isUser: false, timestamp: new Date() };
+      setMessages(prevMessages => [...prevMessages, botMessage]);
+      setIsLoading(false);
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 2000);
   };
 
-  const renderFeaturedRecipes = () => {
-    return dummyFeaturedRecipes.map(recipe => (
-      <TouchableOpacity key={recipe.id} style={styles.featuredRecipeItem} onPress={() => openRecipeDetails(recipe)}>
-        <Image source={{ uri: recipe.image }} style={styles.recipeImage} />
-        <Text style={[styles.recipeTitle,]}>{recipe.title}</Text>
-        <Text style={[styles.recipeCategory,]}>{recipe.category}</Text>
-      </TouchableOpacity>
-    ));
+  const handleImagePicker = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.cancelled) {
+      setImageUri(result.uri);
+    }
   };
 
-  const renderRecipeCategories = () => {
-    return dummyRecipeCategories.map(category => (
-      <TouchableOpacity key={category} style={styles.categoryItem}>
-        <Text style={[styles.categoryText,]}>{category}</Text>
-      </TouchableOpacity>
-    ));
-  };
+  const handleCamera = async () => {
+    const { granted } = await Camera.requestCameraPermissionsAsync();
+    if (!granted) {
+      Alert.alert("Permission Required", "Camera access is needed to take photos.");
+      return;
+    }
 
-  const renderFoodQuotes = () => {
-    return dummyFoodQuotes.map((quote, index) => (
-      <View key={index} style={styles.quoteItem}>
-        <Text style={[styles.quoteText,]}>{quote}</Text>
-      </View>
-    ));
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+    });
+
+    if (!result.cancelled) {
+      setImageUri(result.uri);
+    }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Modal
-        animationType="slide"
-        transparent={false}
-        visible={modalVisible}
-        onRequestClose={closeRecipeDetails}
+    <View style={styles.container}>
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesList}
+        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        <View style={styles.modalContainer}>
-          <Image source={{ uri: selectedRecipe?.image }} style={styles.modalImage} />
-          <Text style={styles.modalTitle}>{selectedRecipe?.translatedTitle}</Text>
-          <ScrollView style={styles.modalDescriptionContainer}>
-            <Text style={styles.modalDescription}>{selectedRecipe?.description}</Text>
-          </ScrollView>
-          <TouchableHighlight onPress={closeRecipeDetails}>
-            <Text style={styles.closeButton}>Close</Text>
-          </TouchableHighlight>
-        </View>
-      </Modal>
-
-      <Text style={[styles.title, { color: colors.primary }]}>রান্নাঘরে আপনাকে স্বাগতম</Text>
-      <ScrollView style={styles.sliderContainer} horizontal pagingEnabled>
-        {renderFeaturedRecipes()}
+        {messages.map((msg, index) => (
+          <View key={index} style={[styles.message, msg.isUser ? styles.userMessage : styles.botMessage, msg.isUser ? {backgroundColor: colors.primary} : {backgroundColor: colors.surface}]}>
+            <Text style={[styles.messageText, {color: colors.onSurface}]}>
+              {msg.text}
+            </Text>
+          </View>
+        ))}
+        {isLoading && <ActivityIndicator size="large" color={colors.primary} />}
+        {imageUri && (
+          <View style={styles.previewContainer}>
+            <Image source={{ uri: imageUri }} style={styles.previewImage} />
+          </View>
+        )}
       </ScrollView>
-
-      <View style={styles.section}>
-        <Text style={[styles.subtitle, { color: colors.primary }]}>Recipe Categories</Text>
-        <View style={styles.categoriesContainer}>{renderRecipeCategories()}</View>
+      <View style={styles.inputArea}>
+        <TextInput
+          style={[styles.input, {color: colors.text, backgroundColor: colors.background}]}
+          value={message}
+          onChangeText={setMessage}
+          placeholder="Type a message"
+          placeholderTextColor="#121111"
+        />
+        <TouchableOpacity onPress={handleImagePicker} style={styles.button}>
+          <MaterialCommunityIcons name="image" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleCamera} style={styles.button}>
+          <MaterialCommunityIcons name="camera" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleSendMessage} style={styles.button}>
+          <MaterialCommunityIcons name="send" size={24} color={colors.primary} />
+        </TouchableOpacity>
       </View>
-
-      <ScrollView style={styles.quoteContainer} horizontal pagingEnabled>
-        {renderFoodQuotes()}
-      </ScrollView>
-
-      <Button
-        mode="contained"
-        onPress={() => console.log('Pressed')}
-        style={[styles.button, { backgroundColor: colors.accent }]}
-        labelStyle={{ color: colors.background }}
-      >
-        Explore All Recipes
-      </Button>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
+  // Your existing styles
+  // Add styles for previewContainer and previewImage if not already defined
+  previewContainer: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  previewImage: {
+    width: 250, // Adjust size as needed
+    height: 250,
+    resizeMode: 'contain',
+    borderRadius: 20, // Optional: if you want rounded corners
+  },
   container: {
     flex: 1,
-    padding: 20,
+    backgroundColor: '#f5f5f5',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 20,
+  messagesList: {
+    flex: 1,
   },
-  sliderContainer: {
-    maxHeight: 200,
-    marginBottom: 20,
-  },
-  section: {
-    marginBottom: 20,
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  featuredRecipeItem: {
-    width: 150,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 10,
+  message: {
+    marginVertical: 5,
     padding: 10,
-    marginRight: 10,
+    borderRadius: 20,
+    maxWidth: '75%',
+    alignSelf: 'flex-end',
   },
-  recipeImage: {
-    width: '100%',
-    height: 100,
-    borderRadius: 10,
-    marginBottom: 5,
+  userMessage: {
+    marginLeft: '25%',
   },
-  recipeTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333', // Updated to a darker color for better visibility
+  botMessage: {
+    alignSelf: 'flex-start',
+    marginRight: '25%',
   },
-  recipeCategory: {
-    fontSize: 12,
-    color: '#666', // Updated to a darker color for better visibility
+  messageText: {
+    fontSize: 16,
   },
-  categoriesContainer: {
+  inputArea: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    padding: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#ddd',
   },
-  categoryItem: {
-    backgroundColor: '#f0f0f0',
-    borderRadius: 10,
-    padding: 5,
+  input: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 25,
     marginRight: 10,
-    marginBottom: 10,
-  },
-  categoryText: {
-    fontSize: 14,
+    fontSize: 16,
   },
   button: {
-    marginTop: 20,
+    padding: 8,
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  previewContainer: {
     alignItems: 'center',
-    padding: 20,
+    marginVertical: 20,
   },
-  modalImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  modalDescriptionContainer: {
-    maxHeight: 200,
-    marginBottom: 10,
-  },
-  modalDescription: {
+  previewText: {
     fontSize: 16,
-    textAlign: 'center',
+    marginBottom: 10,
   },
-  closeButton: {
-    fontSize: 16,
-    color: 'blue',
-    marginTop: 20,
-  },
-  quoteContainer: {
-    maxHeight: 100,
-    marginBottom: 20,
-  },
-  quoteItem: {
-    width: 300,
-    backgroundColor: '#f97827',
-    borderRadius: 10,
-    padding: 10,
-    marginRight: 10,
-  },
-  quoteText: {
-    fontSize: 14,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    color: '#333', // Updated to a darker color for better visibility
+  previewImage: {
+    width: 200, // Adjust size as needed
+    height: 200,
+    resizeMode: 'contain',
   },
 });
+
+export default HomeScreen;
