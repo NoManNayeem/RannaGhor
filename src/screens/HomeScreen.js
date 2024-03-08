@@ -16,6 +16,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { chatWithGemini, chatWithGeminiMultiModal } from '../services/ChatService'; // Adjust the import path as necessary
 import * as FileSystem from 'expo-file-system';
+import Markdown from 'react-native-markdown-display';
+
 
 const HomeScreen = () => {
   const [message, setMessage] = useState('');
@@ -54,6 +56,10 @@ const HomeScreen = () => {
       console.error("Error picking image:", error);
       Alert.alert("Error", "An error occurred while picking the image.");
     }
+    if (!result.cancelled) {
+      setImageUri(result.uri);
+      setMessage('Explain this image'); // Set default text when an image is selected
+    }
   };
 
   const handleCamera = async () => {
@@ -71,39 +77,70 @@ const HomeScreen = () => {
       console.error("Error capturing image:", error);
       Alert.alert("Error", "An error occurred while capturing the image.");
     }
+    if (!result.cancelled) {
+      setImageUri(result.uri);
+      setMessage('Explain this image'); // Set default text when an image is captured
+    }
   };
 
   const handleSendMessage = async () => {
+    // Check if neither a message nor an image has been provided.
     if (!message.trim() && !imageUri) {
       Alert.alert("Error", "Please enter a message or select an image.");
       return;
     }
-
+  
     setIsLoading(true);
-    const newMessage = { text: message.trim(), isUser: true, timestamp: new Date().toISOString(), imageUri: imageUri };
+  
+    // Create a message object for the message list.
+    // If an image is selected but no custom message is provided, use the default message.
+    const newMessage = {
+      text: message.trim() || (imageUri ? 'Explain this image' : ''),
+      isUser: true,
+      timestamp: new Date().toISOString(),
+      imageUri: imageUri,
+    };
+    
+    // Add the new message to the messages list.
     setMessages(messages => [...messages, newMessage]);
-
+  
     try {
-      let responseText;
+      // If an image is included, prepare it for sending.
+      // You might need to adjust this logic based on how your chatWithGemini or chatWithGeminiMultiModal functions expect the image data.
+      let responseText = '';
       if (imageUri) {
         const base64Data = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
-        responseText = await chatWithGeminiMultiModal(message.trim(), base64Data);
+        
+        // Assuming chatWithGeminiMultiModal can handle both text and base64 encoded image.
+        // Adjust this call based on your actual API/service requirements.
+        responseText = await chatWithGeminiMultiModal(message.trim() || 'Explain this image', base64Data);
       } else {
+        // No image, just send the text message.
         responseText = await chatWithGemini(message.trim());
       }
-
-      const botMessage = { text: responseText, isUser: false, timestamp: new Date().toISOString() };
+  
+      // Handle the bot's response.
+      // This example just adds the response as a new message from the bot.
+      // Adjust based on the actual response format and requirements.
+      const botMessage = {
+        text: responseText,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Add the bot's message to the messages list.
       setMessages(messages => [...messages, botMessage]);
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again later.");
     } finally {
       setIsLoading(false);
-      setMessage('');
-      setImageUri(null);
-      scrollViewRef.current?.scrollToEnd({ animated: true });
+      setMessage(''); // Clear the message input.
+      setImageUri(null); // Clear the selected/captured image URI.
+      scrollViewRef.current?.scrollToEnd({ animated: true }); // Scroll to the bottom of the message list.
     }
   };
+  
 
   return (
     <SafeAreaView style={styles.container}>
@@ -114,10 +151,19 @@ const HomeScreen = () => {
       >
         {messages.map((msg, index) => (
           <View key={index} style={[styles.message, msg.isUser ? styles.userMessage : styles.botMessage]}>
-            <Text style={[styles.messageText, msg.isUser ? styles.userMessageText : styles.botMessageText]}>
-              {msg.text}
-            </Text>
-            {msg.imageUri && <Image source={{ uri: msg.imageUri }} style={styles.previewImage} />}
+            {msg.isUser ? (
+              <>
+                <Text style={[styles.messageText, styles.userMessageText]}>
+                  {msg.text}
+                </Text>
+                {msg.imageUri && <Image source={{ uri: msg.imageUri }} style={styles.previewImage} />}
+              </>
+            ) : (
+              // Render Markdown for bot messages
+              <Markdown style={{ body: [styles.messageText, styles.botMessageText] }}>
+                {msg.text}
+              </Markdown>
+            )}
           </View>
         ))}
         {isLoading && <ActivityIndicator size="large" color="#0000ff" />}
