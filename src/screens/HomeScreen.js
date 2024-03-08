@@ -1,15 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, ScrollView, Text, TextInput, TouchableOpacity,
-  Image, StyleSheet, ActivityIndicator, Alert, Platform
+  View,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
 } from 'react-native';
-import { useTheme } from 'react-native-paper';
-import * as ImagePicker from 'expo-image-picker';
-import { Camera } from 'expo-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { chatWithGemini, chatWithGeminiMultiModal } from '../services/ChatService'; // Adjust the import path as necessary
+import * as FileSystem from 'expo-file-system';
 
 const HomeScreen = () => {
-  const { colors } = useTheme();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -17,179 +25,200 @@ const HomeScreen = () => {
   const [imageUri, setImageUri] = useState(null);
 
   useEffect(() => {
-    (async () => {
-      if (Platform.OS !== 'web') {
-        const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
-        const { status: imagePickerStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (cameraStatus !== 'granted' || imagePickerStatus !== 'granted') {
-          Alert.alert('Permission needed', 'Camera and photo library access is required to use these features.');
-        }
-      }
-    })();
+    requestPermissionsAsync();
   }, []);
 
-  const handleSendMessage = () => {
-    if (!message.trim()) return;
-    const newMessage = { text: message.trim(), isUser: true, timestamp: new Date() };
-    setMessages([...messages, newMessage]);
-    mockBotResponse(message.trim());
-    setMessage('');
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  };
-
-  const mockBotResponse = (userMessage) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      const botMessage = { text: `Your reply is: ${userMessage}`, isUser: false, timestamp: new Date() };
-      setMessages(prevMessages => [...prevMessages, botMessage]);
-      setIsLoading(false);
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 2000);
+  const requestPermissionsAsync = async () => {
+    if (Platform.OS !== 'web') {
+      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      const { status: imagePickerStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (cameraStatus !== 'granted' || imagePickerStatus !== 'granted') {
+        Alert.alert('Permission needed', 'Camera and photo library access is required to use these features.');
+      }
+    }
   };
 
   const handleImagePicker = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 1,
+        base64: true,
+      });
 
-    if (!result.cancelled) {
-      setImageUri(result.uri);
+      if (!result.cancelled) {
+        setImageUri(result.uri);
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "An error occurred while picking the image.");
     }
   };
 
   const handleCamera = async () => {
-    const { granted } = await Camera.requestCameraPermissionsAsync();
-    if (!granted) {
-      Alert.alert("Permission Required", "Camera access is needed to take photos.");
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.cancelled) {
+        setImageUri(result.uri);
+      }
+    } catch (error) {
+      console.error("Error capturing image:", error);
+      Alert.alert("Error", "An error occurred while capturing the image.");
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!message.trim() && !imageUri) {
+      Alert.alert("Error", "Please enter a message or select an image.");
       return;
     }
 
-    let result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.5,
-    });
+    setIsLoading(true);
+    const newMessage = { text: message.trim(), isUser: true, timestamp: new Date().toISOString(), imageUri: imageUri };
+    setMessages(messages => [...messages, newMessage]);
 
-    if (!result.cancelled) {
-      setImageUri(result.uri);
+    try {
+      let responseText;
+      if (imageUri) {
+        const base64Data = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
+        responseText = await chatWithGeminiMultiModal(message.trim(), base64Data);
+      } else {
+        responseText = await chatWithGemini(message.trim());
+      }
+
+      const botMessage = { text: responseText, isUser: false, timestamp: new Date().toISOString() };
+      setMessages(messages => [...messages, botMessage]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message. Please try again later.");
+    } finally {
+      setIsLoading(false);
+      setMessage('');
+      setImageUri(null);
+      scrollViewRef.current?.scrollToEnd({ animated: true });
     }
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <ScrollView
-        ref={scrollViewRef}
         style={styles.messagesList}
+        ref={scrollViewRef}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
         {messages.map((msg, index) => (
-          <View key={index} style={[styles.message, msg.isUser ? styles.userMessage : styles.botMessage, msg.isUser ? {backgroundColor: colors.primary} : {backgroundColor: colors.surface}]}>
-            <Text style={[styles.messageText, {color: colors.onSurface}]}>
+          <View key={index} style={[styles.message, msg.isUser ? styles.userMessage : styles.botMessage]}>
+            <Text style={[styles.messageText, msg.isUser ? styles.userMessageText : styles.botMessageText]}>
               {msg.text}
             </Text>
+            {msg.imageUri && <Image source={{ uri: msg.imageUri }} style={styles.previewImage} />}
           </View>
         ))}
-        {isLoading && <ActivityIndicator size="large" color={colors.primary} />}
-        {imageUri && (
-          <View style={styles.previewContainer}>
-            <Image source={{ uri: imageUri }} style={styles.previewImage} />
-          </View>
-        )}
+        {isLoading && <ActivityIndicator size="large" color="#0000ff" />}
       </ScrollView>
       <View style={styles.inputArea}>
         <TextInput
-          style={[styles.input, {color: colors.text, backgroundColor: colors.background}]}
+          style={styles.input}
           value={message}
           onChangeText={setMessage}
           placeholder="Type a message"
-          placeholderTextColor="#121111"
+          multiline
         />
-        <TouchableOpacity onPress={handleImagePicker} style={styles.button}>
-          <MaterialCommunityIcons name="image" size={24} color={colors.primary} />
+        <TouchableOpacity onPress={handleImagePicker} style={styles.iconButton}>
+          <MaterialCommunityIcons name="image" size={24} color="blue" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleCamera} style={styles.button}>
-          <MaterialCommunityIcons name="camera" size={24} color={colors.primary} />
+        <TouchableOpacity onPress={handleCamera} style={styles.iconButton}>
+          <MaterialCommunityIcons name="camera" size={24} color="blue" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleSendMessage} style={styles.button}>
-          <MaterialCommunityIcons name="send" size={24} color={colors.primary} />
+        <TouchableOpacity onPress={handleSendMessage} style={styles.iconButton}>
+          <MaterialCommunityIcons name="send" size={24} color="blue" />
         </TouchableOpacity>
       </View>
-    </View>
+      {imageUri && <Image source={{ uri: imageUri }} style={styles.fullPreviewImage} />}
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  // Your existing styles
-  // Add styles for previewContainer and previewImage if not already defined
-  previewContainer: {
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  previewImage: {
-    width: 250, // Adjust size as needed
-    height: 250,
-    resizeMode: 'contain',
-    borderRadius: 20, // Optional: if you want rounded corners
-  },
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    padding: 10,
+    backgroundColor: '#f5f5f5', // Added a background color for better UI
   },
   messagesList: {
     flex: 1,
   },
   message: {
-    marginVertical: 5,
+    flexDirection: 'row',
+    margin: 10,
     padding: 10,
-    borderRadius: 20,
-    maxWidth: '75%',
-    alignSelf: 'flex-end',
-  },
-  userMessage: {
-    marginLeft: '25%',
-  },
-  botMessage: {
-    alignSelf: 'flex-start',
-    marginRight: '25%',
+    borderRadius: 20, // Added border radius
+    backgroundColor: '#ffffff', // Added background color
+    shadowColor: '#000', // Added shadow for elevation effect
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   messageText: {
     fontSize: 16,
+    marginRight: 10,
   },
   inputArea: {
     flexDirection: 'row',
-    padding: 10,
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#ddd',
+    backgroundColor: '#fff', // Input area background color
+    borderRadius: 20, // Rounded corners for input area
+    padding: 5, // Padding for input area
   },
   input: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 25,
     marginRight: 10,
-    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 20, // Rounded corners for text input
+    padding: 10,
+    backgroundColor: '#f0f0f0', // Changed input background for better contrast
   },
-  button: {
-    padding: 8,
-  },
-  previewContainer: {
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  previewText: {
-    fontSize: 16,
-    marginBottom: 10,
+  iconButton: {
+    marginLeft: 4,
+    padding: 8, // Increased padding for larger touchable area
+    borderRadius: 20, // Rounded corners for buttons
+    backgroundColor: '#e0e0e0', // Button background color for better UI
   },
   previewImage: {
-    width: 200, // Adjust size as needed
+    width: 50,
+    height: 50,
+    resizeMode: 'cover',
+    borderRadius: 10,
+  },
+  fullPreviewImage: {
+    width: '100%',
     height: 200,
     resizeMode: 'contain',
+    borderRadius: 10,
+    marginTop: 10, // Added margin top for spacing
   },
+  userMessage: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#dcf8c6', // Different color for user messages
+  },
+  botMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#f0f0f0', // Different color for bot messages
+  },
+  userMessageText: {},
+  botMessageText: {},
 });
 
 export default HomeScreen;
